@@ -26,6 +26,7 @@ import {
   computeFileLists,
   createFileOps,
   extractFileOpsFromMessage,
+  findLatestCompactionUserMessage,
   type FileOperations,
   formatFileOperations,
   getCompactionContent,
@@ -62,16 +63,11 @@ const MAX_REQUIRED_ASK_CONTEXT_CHARS = 2_000;
 const REQUIRED_ASK_CONTEXT_TRUNCATED_MARKER = "\n[... split-turn ask context truncated ...]\n";
 
 function latestUserText(messages: AgentMessage[]): string {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role === "user") {
-      const source = getCompactionContent(message.content).text.trim();
-      if (source) {
-        return source;
-      }
-    }
-  }
-  return "";
+  const message = findLatestCompactionUserMessage(
+    messages,
+    (m) => getCompactionContent(m.content).text,
+  );
+  return message ? getCompactionContent(message.content).text.trim() : "";
 }
 
 function extractLatestUserRequest(messages: AgentMessage[]): string | undefined {

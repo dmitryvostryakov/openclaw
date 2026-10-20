@@ -11,6 +11,8 @@ import {
 } from "../../../packages/agent-core/src/harness/compaction/compaction.js";
 import {
   computeFileLists,
+  findLatestCompactionUserMessage,
+  formatCompactionUserLabel,
   formatFileOperations,
 } from "../../../packages/agent-core/src/harness/compaction/utils.js";
 import { classifyToolUseResultPairing } from "../../../packages/agent-core/src/harness/session/tool-result-pairing.js";
@@ -497,7 +499,7 @@ function formatContextMessage(message: AgentMessage): string | null {
   if (message.role === "assistant") {
     roleLabel = "Assistant";
   } else if (message.role === "user") {
-    roleLabel = "User";
+    roleLabel = formatCompactionUserLabel(message);
   } else if (message.role === "toolResult") {
     const toolName = (message as { toolName?: unknown }).toolName;
     const safeToolName = typeof toolName === "string" && toolName.trim() ? toolName : "tool";
@@ -618,15 +620,8 @@ function formatGeneratedSplitTurnSection(summary: string, onTruncated: () => voi
 }
 
 function extractLatestUserAsk(messages: AgentMessage[]): string | null {
-  for (const message of messages.toReversed()) {
-    if (message.role === "user") {
-      const ask = extractMessageText(message);
-      if (ask) {
-        return ask;
-      }
-    }
-  }
-  return null;
+  const message = findLatestCompactionUserMessage(messages, extractMessageText);
+  return message ? extractMessageText(message) : null;
 }
 
 /** Registers compaction hooks that summarize, preserve recent turns, and audit output quality. */
