@@ -138,6 +138,8 @@ interface CompactionRetentionBudget {
 }
 
 export interface CompactionRetentionConstraints {
+  /** The run's source input; later internal updates do not replace its human ask. */
+  requestFromEntryId?: string;
   /** An admitted, unprocessed user remains intact even before its budget is prepared. */
   preserveFromEntryId?: string;
   budget?: CompactionRetentionBudget;

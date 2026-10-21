@@ -113,6 +113,7 @@ describe("compaction sender provenance", () => {
         entries,
         { enabled: true, reserveTokens: 1_000, keepRecentTokens: 1 },
         "unresolved",
+        { requestFromEntryId: "entry-0" },
       );
       if (!prepared.ok || !prepared.value) {
         throw new Error("expected compactable history");
@@ -160,7 +161,9 @@ describe("compaction sender provenance", () => {
         throw degraded.error;
       }
       expect(degraded.value.summary).toContain(JSON.stringify(request));
-      expect(degraded.value.summary).not.toContain("## Original request of the current turn");
+      expect(degraded.value.summary).toContain(
+        "[Operator input]: Operator context: production remains unchanged.",
+      );
       const replay = buildSessionContext([
         ...entries,
         {

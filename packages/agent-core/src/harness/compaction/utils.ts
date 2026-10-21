@@ -339,6 +339,31 @@ export function findLatestCompactionUserMessage(
   );
 }
 
+export function extractCompactionMessageText(message: AgentMessage): string {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  return Array.isArray(content)
+    ? content
+        .flatMap((block) => {
+          const text =
+            block && typeof block === "object" ? (block as { text?: unknown }).text : undefined;
+          return typeof text === "string" && text.trim() ? [text.trim()] : [];
+        })
+        .join("\n")
+    : "";
+}
+
+/** Legacy producers cannot search past an independent input for a pending ask. */
+export function extractCurrentCompactionUserRequest(
+  messages: readonly AgentMessage[],
+  getText: (message: Extract<AgentMessage, { role: "user" }>) => string,
+): string | null {
+  const message = messages.findLast((item) => item.role === "user");
+  return message && isCompactionUserRequest(message) ? getText(message) : null;
+}
+
 /** Shared by summary input, preserved excerpts, and their token accounting. */
 export function formatCompactionUserLabel(message: PersistedSenderCarrier): string {
   return `${compactionUserRole(message)}${formatPersistedSenderSuffix(message)}`;
