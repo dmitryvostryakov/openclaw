@@ -15,6 +15,7 @@ import {
   extractCompactionMessageText as extractMessageText,
   formatCompactionUserLabel,
   formatFileOperations,
+  isCompactionUserRequest,
 } from "../../../packages/agent-core/src/harness/compaction/utils.js";
 import { classifyToolUseResultPairing } from "../../../packages/agent-core/src/harness/session/tool-result-pairing.js";
 import { formatErrorMessage } from "../../infra/errors.js";
@@ -45,8 +46,10 @@ import {
   buildStructuredFallbackSummary,
   createSummaryQualityRetentionPlan,
   extractOpaqueIdentifiers,
-  nestRequiredSummaryHeadings,
+  nestMarkdownHeadings,
+  normalizeLegacySplitTurnSummary,
   resolveSummaryReserveTokens,
+  SPLIT_TURN_SECTION_HEADING,
   wrapUntrustedInstructionBlock,
 } from "./compaction-safeguard-quality.js";
 import {
@@ -62,7 +65,6 @@ import { readWorkspaceContextForSummary } from "./compaction-workspace-context.j
 const log = createSubsystemLogger("compaction-safeguard");
 
 const missedModelWarningSessions = new WeakSet<object>();
-const SPLIT_TURN_SECTION_HEADING = "**Turn Context (split turn):**";
 const CONTEXT_TRUNCATED_MARKER = "\n\n[Earlier compaction context truncated to fit budget]\n\n";
 // Split-turn context supplements the generated summary and must not claim its
 // guaranteed half of the final artifact before common finalization runs.
@@ -85,21 +87,6 @@ type CompactionLoss =
   | "preserved-turn-head"
   | "identifier-retention"
   | "quality-retention";
-
-function nestMarkdownHeadings(text: string): string {
-  return text.replace(/^##(?=[ \t]+\S)/gmu, "###");
-}
-
-function normalizeLegacySplitTurnSummary(summary: string | undefined): string | undefined {
-  const splitTurnStart = summary?.indexOf(SPLIT_TURN_SECTION_HEADING) ?? -1;
-  if (!summary || splitTurnStart < 0) {
-    return summary;
-  }
-  const splitTurnContentStart = splitTurnStart + SPLIT_TURN_SECTION_HEADING.length;
-  // Shipped safeguard summaries nested a second complete summary after this owned boundary.
-  // Demote its headings only in the next model input; the persisted old boundary stays untouched.
-  return `${summary.slice(0, splitTurnContentStart)}${nestRequiredSummaryHeadings(summary.slice(splitTurnContentStart))}`;
-}
 
 /**
  * The boundary-scoped range a preparation was meant to cover: everything the
@@ -883,6 +870,13 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
           ? (latestUnresolvedUserRequest ?? null)
           : extractCurrentCompactionUserRequest(oracleMessages, extractMessageText);
       const latestAskInRetainedTurn = splitUserAsk !== null && splitUserAsk === latestUserAsk;
+      const sourceInput = oracleMessages.findLast(isCompactionUserRequest);
+      const requiredSourceContext =
+        preparation.requestState !== undefined && !latestUnresolvedUserRequest && sourceInput
+          ? formatRequiredAskContext(
+              `- ${formatCompactionUserLabel(sourceInput)}: ${extractMessageText(sourceInput)}`,
+            )
+          : undefined;
       const identifiers = extractOpaqueIdentifiers(
         oracleMessages.slice(-10).map(extractMessageText).filter(Boolean).join("\n"),
       );
@@ -998,6 +992,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
                 latestAskInRetainedTurn,
                 latestUnresolvedUserRequest,
                 requiredAskContext,
+                requiredSourceContext,
                 identifierPolicy,
               }
             : undefined,
@@ -1038,6 +1033,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
               latestAskInRetainedTurn,
               latestUnresolvedUserRequest,
               requiredAskContext,
+              requiredSourceContext,
               identifierPolicy,
             },
             true,

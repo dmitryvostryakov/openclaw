@@ -119,8 +119,11 @@ it.each([
     expect(loadSessionEntry(target)?.compactionQualityDegraded).toBe(true);
     const boundary = lastCompaction(reopened);
     expect(boundary.details).toMatchObject({ qualityDegraded: true });
-    expect(boundary.summary).toContain("## Pending user asks\nLatest user request context:");
+    expect(boundary.summary).toContain("## Source context\n");
     expect(boundary.summary).toContain(LATEST_ASK);
+    expect(boundary.summary.split("## Pending user asks\n")[1]?.split("\n## ")[0]).not.toContain(
+      LATEST_ASK,
+    );
     expect(boundary.summary).not.toContain(OVERSIZED_IDENTIFIER);
     expect(boundary.summary).toContain("Summary without headings");
     const replay = JSON.stringify(reopened.buildSessionContext().messages);
@@ -141,7 +144,7 @@ it.each([
     continued.session.dispose();
     expect(requests).toHaveLength(1);
     const request = JSON.stringify(requests[0]?.messages);
-    expect(request).toContain("Latest user request context:");
+    expect(request).toContain("## Source context");
     expect(request).toContain(LATEST_ASK);
     expect(request).toContain("next question");
     expect(request).not.toContain(OVERSIZED_IDENTIFIER);

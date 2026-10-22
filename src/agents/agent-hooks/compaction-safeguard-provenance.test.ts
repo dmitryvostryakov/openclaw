@@ -112,6 +112,8 @@ it.each(["unresolved", "none"] as const)(
     const { summary } = expectCompactionResult(result);
     const pendingAsks = summary.split("## Pending user asks\n")[1]?.split("\n## ")[0];
     expect(pendingAsks).not.toContain(staleAsk);
+    expect(summary).toContain("## Source context\n");
+    expect(summary).toContain(staleAsk);
   },
 );
 

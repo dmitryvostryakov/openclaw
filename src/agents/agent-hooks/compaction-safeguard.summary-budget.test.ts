@@ -35,25 +35,35 @@ afterEach(() => {
 });
 
 describe("compaction-safeguard mixed-script summary budget", () => {
-  it("trims CJK prose while preserving an affordable ASCII request", async () => {
-    const tokenBudget = 1_000;
-    const sessionManager = createQualityGuardSessionManager({ qualityGuardMaxRetries: 0 });
-    const event = createCompactionEvent({
-      messageText: REQUIRED_ASK,
-      preparation: { summaryTokenBudget: tokenBudget },
-    });
+  it.each([undefined, "none"] as const)(
+    "trims CJK prose while preserving affordable user context (requestState=%s)",
+    async (requestState) => {
+      const tokenBudget = 1_000;
+      const sessionManager = createQualityGuardSessionManager({ qualityGuardMaxRetries: 0 });
+      const event = createCompactionEvent({
+        messageText: REQUIRED_ASK,
+        preparation: { summaryTokenBudget: tokenBudget, requestState },
+      });
 
-    const { result } = await runCompactionScenario(sessionManager, event);
+      const { result } = await runCompactionScenario(sessionManager, event);
 
-    const { summary } = expectCompactionResult(result);
-    expect(consumeCompactionSafeguardCancellation(sessionManager)).toBeNull();
-    expect(summary).toContain("## Pending user asks\nLatest user request context:");
-    expect(summary).toContain(REQUIRED_ASK);
-    expect(summary).toContain(CJK_PROSE);
-    expect(estimateStringChars(summary)).toBeLessThanOrEqual(
-      tokenBudget * CHARS_PER_TOKEN_ESTIMATE,
-    );
-  });
+      const { summary } = expectCompactionResult(result);
+      expect(consumeCompactionSafeguardCancellation(sessionManager)).toBeNull();
+      if (requestState === "none") {
+        expect(summary).toContain("## Source context\n");
+        expect(summary.split("## Pending user asks\n")[1]?.split("\n## ")[0]).not.toContain(
+          REQUIRED_ASK,
+        );
+      } else {
+        expect(summary).toContain("## Pending user asks\nLatest user request context:");
+      }
+      expect(summary).toContain(REQUIRED_ASK);
+      expect(summary).toContain(CJK_PROSE);
+      expect(estimateStringChars(summary)).toBeLessThanOrEqual(
+        tokenBudget * CHARS_PER_TOKEN_ESTIMATE,
+      );
+    },
+  );
 
   it("marks a bounded degraded summary when required facts exceed the token budget", async () => {
     const sessionManager = createQualityGuardSessionManager({ qualityGuardMaxRetries: 0 });

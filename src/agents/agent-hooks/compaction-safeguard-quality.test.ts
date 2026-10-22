@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   auditSummaryQuality,
   buildCompactionStructureInstructions,
+  createSummaryQualityRetentionPlan,
 } from "./compaction-safeguard-quality.js";
 
 const structuredSummary = (pendingAsk: string, decision = "Keep current flow.") =>
@@ -14,6 +15,33 @@ const structuredSummary = (pendingAsk: string, decision = "Keep current flow.") 
   ].join("\n");
 
 describe("compaction summary request matching", () => {
+  it.each([
+    '- User sender={"id":"fixture"}: completed-source-fixture',
+    '- User: completed-source-fixture 源数据\nQuoted "history" remains data.',
+  ])("retains source facts outside pending asks through budget/replan (%s)", (sourceContext) => {
+    const params = { identifiers: [], latestAsk: null, requiredSourceContext: sourceContext };
+    const marker = "[Earlier context truncated]";
+    const plan = createSummaryQualityRetentionPlan(structuredSummary("None."), marker, params);
+    if (!plan) {
+      throw new Error("expected a structured quality plan");
+    }
+    expect(plan.render(plan.minimumChars - 1)).toBeNull();
+    for (const maxChars of [plan.minimumChars, plan.minimumChars + 32, plan.minimumChars + 256]) {
+      const rendered = plan.render(maxChars);
+      if (!rendered) {
+        throw new Error("the protected minimum must fit an admitted budget");
+      }
+      expect(rendered.text.length).toBeLessThanOrEqual(maxChars);
+      expect(rendered.text).toContain(`## Source context\n${JSON.stringify(sourceContext)}`);
+      expect(rendered.text.split("## Pending user asks\n")[1]?.split("\n## ")[0]).not.toContain(
+        "completed-source-fixture",
+      );
+      expect(
+        createSummaryQualityRetentionPlan(rendered.text, marker, params)?.render(maxChars),
+      ).toEqual({ text: rendered.text, trimmed: false });
+    }
+  });
+
   it("keeps failed-check guidance alongside a still-live user request", () => {
     const instructions = buildCompactionStructureInstructions(
       undefined,

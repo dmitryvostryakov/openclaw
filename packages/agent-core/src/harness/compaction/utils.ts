@@ -340,15 +340,15 @@ export function findLatestCompactionUserMessage(
 }
 
 export function extractCompactionMessageText(message: AgentMessage): string {
-  const content = (message as { content?: unknown }).content;
+  const content = "content" in message ? message.content : undefined;
   if (typeof content === "string") {
     return content.trim();
   }
   return Array.isArray(content)
     ? content
-        .flatMap((block) => {
+        .flatMap((block: unknown) => {
           const text =
-            block && typeof block === "object" ? (block as { text?: unknown }).text : undefined;
+            block && typeof block === "object" && "text" in block ? block.text : undefined;
           return typeof text === "string" && text.trim() ? [text.trim()] : [];
         })
         .join("\n")

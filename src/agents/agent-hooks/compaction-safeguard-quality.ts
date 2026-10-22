@@ -9,6 +9,8 @@ import type {
 } from "../compaction.js";
 import { wrapUntrustedPromptDataBlock } from "../sanitize-for-prompt.js";
 
+export const SPLIT_TURN_SECTION_HEADING = "**Turn Context (split turn):**";
+
 const MAX_EXTRACTED_IDENTIFIERS = 12;
 const MAX_UNTRUSTED_INSTRUCTION_CHARS = 4000;
 const MAX_ASK_OVERLAP_TOKENS = 12;
@@ -29,6 +31,21 @@ const STRICT_EXACT_IDENTIFIERS_INSTRUCTION =
   "For ## Exact identifiers, preserve literal values exactly as seen (IDs, URLs, file paths, ports, hashes, dates, times).";
 const POLICY_OFF_EXACT_IDENTIFIERS_INSTRUCTION =
   "For ## Exact identifiers, include identifiers only when needed for continuity; do not enforce literal-preservation rules.";
+
+export function nestMarkdownHeadings(text: string): string {
+  return text.replace(/^##(?=[ \t]+\S)/gmu, "###");
+}
+
+export function normalizeLegacySplitTurnSummary(summary: string | undefined): string | undefined {
+  const splitTurnStart = summary?.indexOf(SPLIT_TURN_SECTION_HEADING) ?? -1;
+  if (!summary || splitTurnStart < 0) {
+    return summary;
+  }
+  const splitTurnContentStart = splitTurnStart + SPLIT_TURN_SECTION_HEADING.length;
+  // Shipped safeguard summaries nested a second complete summary after this owned boundary.
+  // Demote its headings only in the next model input; the persisted old boundary stays untouched.
+  return `${summary.slice(0, splitTurnContentStart)}${nestRequiredSummaryHeadings(summary.slice(splitTurnContentStart))}`;
+}
 
 export function resolveSummaryReserveTokens(
   requestedReserveTokens: number,
@@ -176,7 +193,7 @@ function isEmptyPendingAsk(value: string): boolean {
 
 /**
  * Plan truncation that keeps the audit facts and lets everything else shrink.
- * Only the headings, the bounded latest-ask context, and the audited source
+ * Only the headings, bounded request/source context, and the audited source
  * identifiers are untrimmable. Model-written section text — including the
  * "## Exact identifiers" list — is optional content; protecting it verbatim let
  * a re-distilled identifier dump grow past the whole artifact budget while the
@@ -192,6 +209,7 @@ export function createSummaryQualityRetentionPlan(
     latestAskInRetainedTurn?: boolean;
     latestUnresolvedUserRequest?: string;
     requiredAskContext?: string;
+    requiredSourceContext?: string;
     identifierPolicy?: CompactionSummarizationInstructions["identifierPolicy"];
   },
 ): SummaryQualityRetentionPlan | null {
@@ -204,9 +222,13 @@ export function createSummaryQualityRetentionPlan(
     requiredAskContext
       ? `## Latest user request context\n${JSON.stringify(requiredAskContext)}`
       : "";
+  const sourceContextBlock = params.requiredSourceContext?.trim()
+    ? `## Source context\n${JSON.stringify(params.requiredSourceContext.trim())}`
+    : "";
+  const contextPrefix = [requiredContextBlock, sourceContextBlock].filter(Boolean).join("\n\n");
   const parsedSummary =
-    requiredContextBlock && summary.startsWith(`${requiredContextBlock}\n\n`)
-      ? summary.slice(requiredContextBlock.length + 2)
+    contextPrefix && summary.startsWith(`${contextPrefix}\n\n`)
+      ? summary.slice(contextPrefix.length + 2)
       : summary;
   const contents = parseRequiredSummarySectionContents(parsedSummary);
   if (!contents) {
@@ -237,6 +259,7 @@ export function createSummaryQualityRetentionPlan(
       : requiredContextBlock
         ? summary.startsWith(requiredContextBlock)
         : contents[PENDING_ASK_SECTION_INDEX]?.includes(protectedAskContext);
+  const bodyHasRequiredSourceContext = !sourceContextBlock || summary.startsWith(contextPrefix);
   const renderSections = (sectionContents: string[]) =>
     REQUIRED_SUMMARY_SECTIONS.map((heading, index) => {
       const content = sectionContents[index];
@@ -265,6 +288,7 @@ export function createSummaryQualityRetentionPlan(
   const joinBlocks = (blocks: string[], includeMarker: boolean) =>
     [
       ...(requiredContextBlock ? [requiredContextBlock] : []),
+      ...(sourceContextBlock ? [sourceContextBlock] : []),
       ...blocks.slice(0, QUALITY_PROTECTED_SECTION_START),
       ...(includeMarker ? [marker] : []),
       ...blocks.slice(QUALITY_PROTECTED_SECTION_START),
@@ -291,12 +315,14 @@ export function createSummaryQualityRetentionPlan(
     needsRebuild: (maxChars) =>
       (!latestUnresolvedUserRequest && !bodyHasLatestAsk) ||
       !bodyHasRequiredAskContext ||
+      !bodyHasRequiredSourceContext ||
       !bodyHasIdentifiers ||
       !protectedWithinCap(maxChars),
     render(maxChars) {
       if (
         summary.length <= maxChars &&
         bodyHasRequiredAskContext &&
+        bodyHasRequiredSourceContext &&
         bodyHasIdentifiers &&
         protectedWithinCap(maxChars)
       ) {
